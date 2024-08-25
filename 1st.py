@@ -11,13 +11,13 @@ from langchain.tools import Tool
 from langchain.schema import Document
 from langchain_huggingface import HuggingFaceEndpoint
 
-# Configure logging
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Load environment variables
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
 load_dotenv()
 
-# Define paths and model names
+
 db_path = "G0rbit-db"
 embeddings_model = "models/embedding-001"
 llm_model = "gemini-pro"
@@ -92,7 +92,7 @@ def similarity_search_tool(query):
 
 def rephrase_query_tool(query):
     rephrasing_prompt_template = PromptTemplate(
-        template="I need you to rephrase the following question: {question}",
+        template="I need to rephrase the this just change the wording but not the Actual Meaning: {question}",
         input_variables=["question"]
     )
     prompt = rephrasing_prompt_template.format(question=query)
@@ -103,10 +103,10 @@ def rephrase_query_tool(query):
     try:
         response = llm.invoke(prompt)
         
-        # Log the response for debugging
+
         logging.info(f"Rephrase query response: {response}")
 
-        # Handle response as a string directly
+
         if isinstance(response, str):
             return response
         else:
@@ -116,12 +116,9 @@ def rephrase_query_tool(query):
         logging.error(f"Error rephrasing query: {e}")
         return None
 
-
-
-# Define tools
 rephrase_tool = Tool(
     name="rephrase_query",
-    description="Rephrase the input question.",
+    description=" this tool is use to Rephrase the input question.",
     func=rephrase_query_tool,
 )
 
@@ -133,7 +130,7 @@ search_tool = Tool(
 
 tools = [rephrase_tool, search_tool]
 
-# Define prompt template for the agent
+
 template = """
 Answer the following questions as best you can. You have access to the following tools:
 
@@ -167,14 +164,14 @@ llm = ChatGoogleGenerativeAI(model=llm_model, google_api_key=google_api_key)
 agent = create_react_agent(llm, tools, prompt)
 
 agent_executor = AgentExecutor(
-    agent=agent, tools=tools, verbose=False, handle_parsing_errors=True
+    agent=agent, tools=tools, verbose=True, handle_parsing_errors=True
 )
 
 def main():
     if not os.path.exists(db_path):
         process_json_files(json_file_paths)
 
-    query = "how are you"
+    query = "do you know who is hassan sultan"
     try:
         response = agent_executor.invoke({"input": query})
         print("Response:", response['output'])
