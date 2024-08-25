@@ -3,7 +3,6 @@ import logging
 from dotenv import load_dotenv
 from langchain_community.vectorstores import FAISS
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain.prompts import PromptTemplate
 from langchain.agents import AgentExecutor, create_react_agent
 from langchain.tools import Tool
@@ -11,24 +10,26 @@ from langchain_core.tools import tool
 from langchain.schema import Document
 import requests
 from bs4 import BeautifulSoup
-from langchain_community.llms import HuggingFaceHub
+from mistralai import Mistral
 
-
-
+# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 load_dotenv()
 
-
+# Configuration
 db_path = "web_pages_db"
-embeddings_model = "models/embedding-001"
-llm_model = "gemini-pro"
-google_api_key = "AIzaSyCvxLfNfHTQ7DuniFo4_LG1CoZ07nAWndo"
+embeddings_model = "mistral-embed"
+llm_model = "mistral-llm"  # Use the appropriate model name for Mistral LLM
+mistral_api_key = os.getenv("MISTRAL_API_KEY")
 webpage_urls = [
-"https://lgu.edu.pk/cs-faculty/",
+    "https://lgu.edu.pk/cs-faculty/",
 ]
 
+# Initialize Mistral client
+client = Mistral(api_key=mistral_api_key)
 
+# Function to scrape content from a list of web pages
 def scrape_web_pages(urls):
     documents = []
     for url in urls:
@@ -36,6 +37,7 @@ def scrape_web_pages(urls):
             response = requests.get(url)
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
+            # Extract text from the HTML content
             text = soup.get_text()
             documents.append(text)
         except Exception as e:
@@ -56,7 +58,7 @@ def process_web_pages(urls):
         split_docs = text_splitter.split_documents(docs)
 
         # Create embeddings and vector database
-        embeddings = GoogleGenerativeAIEmbeddings(model=embeddings_model)
+        embeddings = client.embeddings.create(model=embeddings_model, inputs=[doc.page_content for doc in split_docs])
         db = FAISS.from_documents(split_docs, embeddings)
         db.save_local(db_path)
         logging.info("Web pages processed and database created.")
@@ -65,31 +67,15 @@ def process_web_pages(urls):
 
 # Define rephrase query tool
 def rephrase_query_tool(query):
-    rephrasing_prompt_template = PromptTemplate(
-        template="I need you to rephrase the following question: {question}",
-        input_variables=["question"]
+    response = client.llm.create(
+        model=llm_model,
+        inputs=[f"Rephrase the following question: {query}"]
     )
-    prompt = rephrasing_prompt_template.format(question=query)
-    llm = llm = HuggingFaceHub(
-    repo_id="mistralai/Mixtral-8x7B-Instruct-v0.1",
-    task="text-generation",
-    model_kwargs={
-        "max_new_tokens": 512,
-        "top_k": 30,
-        "temperature": 0.1,
-        "repetition_penalty": 1.03,
-    },
-)
-    response = llm.invoke(prompt)
-    if hasattr(response, "content"):
-        return response.content
-    else:
-        logging.warning("Response object does not have 'content' attribute.")
-        return None
+    return response['choices'][0]['text'].strip()
 
-
+# Define similarity search tool
 def similarity_search_tool(query):
-    embeddings = GoogleGenerativeAIEmbeddings(model=embeddings_model)
+    embeddings = client.embeddings.create(model=embeddings_model, inputs=[query])
     db = FAISS.load_local(db_path, embeddings=embeddings, allow_dangerous_deserialization=True)
     context = db.similarity_search(query, k=5)
     return context
@@ -109,7 +95,7 @@ search_tool = Tool(
 
 tools = [rephrase_tool, search_tool]
 
-
+# Define the prompt template for the agent
 template = """
 Answer the following questions as best you can. You have access to the following tools:
 
@@ -138,11 +124,8 @@ prompt = PromptTemplate(
     input_variables=['agent_scratchpad', 'input', 'tool_names', 'tools']
 )
 
-# Initialize the language model
-llm = ChatGoogleGenerativeAI(model=llm_model, google_api_key=google_api_key)
-
 # Create an agent
-agent = create_react_agent(llm, tools, prompt)
+agent = create_react_agent(client.llm, tools, prompt)
 
 # Create an agent executor
 agent_executor = AgentExecutor(
@@ -155,8 +138,7 @@ def main():
     if not os.path.exists(db_path):
         process_web_pages(webpage_urls)
 
- 
-    query = "who is  hassan sultan"
+    query = "who is Dr muhammad asif"
     response = agent_executor.invoke(
         {"input": query}
     )
